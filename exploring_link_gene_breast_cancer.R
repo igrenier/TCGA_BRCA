@@ -134,17 +134,17 @@ gene_data_5_year_0 <- gene_data_5_year_0[, (gene_data_all_0) := NULL]
 gene_data_5_year <- gene_data_5_year[, (gene_data_all_0) := NULL]
 
 ## Correlation ----
-corr_test <- apply(gene_data_5_year_0, 2,
+corr_test_5 <- apply(gene_data_5_year_0, 2,
                    function(x) cor(x, y = gene_data_5_year$status))
-corr_test <- sort(corr_test)
-corr_dt <- data.table("correlation" = corr_test)
+corr_test_5 <- sort(corr_test_5)
+corr_5_dt <- data.table("correlation" = corr_test_5)
 
 ## largest negative correlation
-neg_cor_names <- names(corr_test[1:5])
+neg_cor_names <- names(corr_test_5[1:5])
 ## largest positive correlation
-pos_cor_names <- names(corr_test[length(corr_test) - 4:0])
+pos_cor_names <- names(corr_test_5[length(corr_test_5) - 4:0])
 
-ggplot(corr_dt, aes(x = correlation)) +
+ggplot(corr_5_dt, aes(x = correlation)) +
   geom_histogram(fill = "grey", color = "black") +
   theme_bw() +
   labs(x = "Correlation") +
@@ -162,6 +162,7 @@ ggplot(gene_data_5_year[, .(status, get(pos_cor_names[5]))],
        aes(x = factor(status), group = factor(status), y = V2)) +
   geom_boxplot() +
   theme_bw() +
+  scale_x_discrete(labels = c('Dead','Alive')) +
   labs(y = pos_cor_names[5]) +
   theme(legend.position = "none") +
   theme(panel.grid.major = element_blank(),
@@ -179,6 +180,7 @@ ggplot(gene_data_5_year[, .(status, get(neg_cor_names[1]))],
        aes(x = factor(status), group = factor(status), y = V2)) +
   geom_boxplot() +
   theme_bw() +
+  scale_x_discrete(labels = c('Dead','Alive')) +
   labs(y = neg_cor_names[5]) +
   theme(legend.position = "none") +
   theme(panel.grid.major = element_blank(),
@@ -222,8 +224,9 @@ gene_data <- gene_data[, (gene_data_all_0) := NULL]
 ## Correlation ----
 corr_test <- apply(gene_data_0, 2,
                    function(x) cor(x, y = log(gene_data$survival_time)))
+corr_dt <- data.table("gene"= names(corr_test),
+                      "correlation" = corr_test)
 corr_test <- sort(corr_test)
-corr_dt <- data.table("correlation" = corr_test)
 
 ## largest negative correlation
 neg_cor_names <- names(corr_test[1:5])
@@ -277,7 +280,36 @@ ggplot(gene_data[, .(survival_time, get(neg_cor_names[1]))],
 
 ggsave("figs/neg_cor_example_continuous.png",
        units = "in", height = 5, width = 6)
+## Rank Correlation ----
+corr_test <- apply(gene_data_0, 2,
+                   function(x) cor.test(x, y = log(gene_data$survival_time),
+                                        method = "spearman")$estimate)
+corr_dt[, "rank_rho" := corr_test]
+corr_test <- sort(corr_test)
 
+ggplot(corr_dt, aes(x = rank_rho)) +
+  geom_histogram(fill = "grey", color = "black") +
+  theme_bw() +
+  labs(x = "Spearman's Rho") +
+  theme(legend.position = "none") +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text = element_text(size = 13),
+        axis.title = element_text(size = 15),
+        panel.border = element_rect(colour = "cornflowerblue",
+                                    fill = NA, size  = 1))
+ggsave("figs/rank_rho_correlation_continuous.png",
+       units = "in", height = 5, width = 6)
+
+## largest 10 comparison
+setorder(corr_dt, cols = "correlation")
+corr_dt[1:10]
+setorder(corr_dt, cols = "rank_rho")
+corr_dt[1:10]
+setorder(corr_dt, cols = -"correlation")
+corr_dt[1:10]
+setorder(corr_dt, cols = -"rank_rho")
+corr_dt[1:10]
 
 ## Principal Component Analysis ----
 pc <- prcomp(gene_data_0,
