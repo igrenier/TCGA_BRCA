@@ -39,15 +39,20 @@ clinical_data[, days_to_last_follow_up := as.numeric(days_to_last_follow_up)]
 clinical_data[days_to_death == "'--", days_to_death := NA]
 clinical_data[, days_to_death := as.numeric(days_to_death)]
 
-## clean data to remove patients with less than 5 year survival?
-clinical_data <- clinical_data[days_to_last_follow_up > 5 * 365 |
-                                 is.na(days_to_last_follow_up)]
-clinical_data[, status := 1]
-clinical_data[days_to_death < 5 * 365, status := 0]
+## remove patients with less than 3 month history
+clinical_data <- clinical_data[days_to_last_follow_up > 90 |
+                                 days_to_death > 90]
+clinical_data[, survival_time := days_to_last_follow_up]
+clinical_data[vital_status == "Dead", survival_time := days_to_death]
+
+## create subset to look at 5-year survival rate only
+clinical_data_5_year <- clinical_data[days_to_last_follow_up > 5 * 365 |
+                                        is.na(days_to_last_follow_up)]
+clinical_data_5_year[, status := 1]
+clinical_data_5_year[days_to_death < 5 * 365, status := 0]
 
 ### how many cases for each status?
-table(clinical_data$vital_status) # 201/116
-table(clinical_data$status) # 249/68
+table(clinical_data_5_year$vital_status) # 249/68
 
 ## Gene Data ----
 ## read and extract information from file dictionary
@@ -55,18 +60,18 @@ gene_file_dictionary <- as.data.table(read.csv("data/gene_file_dictionary.csv",
                                                header = TRUE))
 
 ## read each folder and append to common data table with added case id
-## Note 1: we only extract cases with available vital status
-## Note 2: we run into the issue of 124 cases IDs having 2 or more gene folders,
+## Note 1: we only extract cases with 3 months of history
+## Note 2: we run into the issue of cases IDs having 2 or more gene folders,
 ##         we will ignore and keep the first instance only. To be discussed.
-## Note 3: one case id does not have the gene expression folder, we skip it.
+## Note 3: some case ids do not have the gene expression folder, we skip them.
 n_cases <- clinical_data[, .N]
 for(cs in 1:n_cases) {
 
-  data_case <- clinical_data$case_id[cs]
+  data_case_id <- clinical_data$case_id[cs]
   data_dir <- paste0("data/genes/",
-                     gene_file_dictionary[case_id == data_case, file_id],
+                     gene_file_dictionary[case_id == data_case_id, file_id],
                      "/")[1]
-  data_file <- gene_file_dictionary[case_id == data_case, file_name][1]
+  data_file <- gene_file_dictionary[case_id == data_case_id, file_name][1]
 
   # check that the case-ID has gene expression folder
   if(is.na(data_file)){
@@ -104,28 +109,33 @@ for(cs in 1:n_cases) {
 
 }
 
-## attach/merge vital status to gene data table
+## attach/merge survival time to gene data table
 gene_data[, case_id := clinical_data$case_id[case_id]]
 gene_data <- merge(gene_data,
-                   clinical_data[, .(case_id, vital_status, status)],
+                   clinical_data[, .(case_id, survival_time)],
                    by = "case_id")
 
-# Analyse the data ----
+gene_data_5_year <- merge(gene_data,
+                          clinical_data_5_year[, .(case_id, status)],
+                          by = "case_id")
+
+# Analyse the 5 year data ----
 ## remove the case id
-gene_data[, case_id := NULL]
+gene_data_5_year[, case_id := NULL]
 
 ## make a copy of the gene without status
-gene_data_0 <- copy(gene_data)
-gene_data_0[, vital_status := NULL]
-gene_data_0[, status := NULL]
+gene_data_5_year_0 <- copy(gene_data_5_year)
+gene_data_5_year_0[, status := NULL]
+gene_data_5_year_0[, survival_time := NULL]
 
-## remove the columns with the marker is 0 for all cases
-gene_data_all_0 <- colnames(gene_data_0)[colSums(gene_data_0) == 0]
-gene_data_0 <- gene_data_0[, (gene_data_all_0) := NULL]
-gene_data <- gene_data[, (gene_data_all_0) := NULL]
+## remove the columns where the marker is 0 for all cases
+gene_data_all_0 <- colnames(gene_data_5_year_0)[colSums(gene_data_5_year_0) == 0]
+gene_data_5_year_0 <- gene_data_5_year_0[, (gene_data_all_0) := NULL]
+gene_data_5_year <- gene_data_5_year[, (gene_data_all_0) := NULL]
 
 ## Correlation ----
-corr_test <- apply(gene_data_0, 2, function(x) cor(x, y = gene_data$status))
+corr_test <- apply(gene_data_5_year_0, 2,
+                   function(x) cor(x, y = gene_data_5_year$status))
 corr_test <- sort(corr_test)
 corr_dt <- data.table("correlation" = corr_test)
 
@@ -148,7 +158,7 @@ ggplot(corr_dt, aes(x = correlation)) +
 ggsave("figs/correlation.png",
        units = "in", height = 5, width = 6)
 
-ggplot(gene_data[, .(status, get(pos_cor_names[5]))],
+ggplot(gene_data_5_year[, .(status, get(pos_cor_names[5]))],
        aes(x = factor(status), group = factor(status), y = V2)) +
   geom_boxplot() +
   theme_bw() +
@@ -165,7 +175,7 @@ ggplot(gene_data[, .(status, get(pos_cor_names[5]))],
 ggsave("figs/pos_cor_example.png",
        units = "in", height = 5, width = 6)
 
-ggplot(gene_data[, .(status, get(neg_cor_names[1]))],
+ggplot(gene_data_5_year[, .(status, get(neg_cor_names[1]))],
        aes(x = factor(status), group = factor(status), y = V2)) +
   geom_boxplot() +
   theme_bw() +
@@ -186,27 +196,101 @@ ggsave("figs/neg_cor_example.png",
 
 # Full Model
 formula_1 <- build_cor_formula("status", c(neg_cor_names, pos_cor_names))
-mymodel_1 <- glm(formula_1, data = gene_data)
+mymodel_1 <- glm(formula_1, data = gene_data_5_year)
 summary(mymodel_1)
 
-# Model 2: remove the 3, 4, and 5th positive correlation
-formula_2 <- build_cor_formula("status", c(neg_cor_names[c(1:2, 4:5)], pos_cor_names[4:5]))
-mymodel_2 <- glm(formula_2, data = gene_data)
+# Model 2: remove the 2nd and 3rd positive correlation
+formula_2 <- build_cor_formula("status",
+                               c(neg_cor_names,
+                                 pos_cor_names[c(1, 4:5)]))
+mymodel_2 <- glm(formula_2, data = gene_data_5_year)
 summary(mymodel_2)
+
+# Analyse the continuous survival time ----
+## remove the case id
+gene_data[, case_id := NULL]
+
+## make a copy of the gene without status
+gene_data_0 <- copy(gene_data)
+gene_data_0[, survival_time := NULL]
+
+## remove the columns where the marker is 0 for all cases
+gene_data_all_0 <- colnames(gene_data_0)[colSums(gene_data_0) == 0]
+gene_data_0 <- gene_data_0[, (gene_data_all_0) := NULL]
+gene_data <- gene_data[, (gene_data_all_0) := NULL]
+
+## Correlation ----
+corr_test <- apply(gene_data_0, 2,
+                   function(x) cor(x, y = log(gene_data$survival_time)))
+corr_test <- sort(corr_test)
+corr_dt <- data.table("correlation" = corr_test)
+
+## largest negative correlation
+neg_cor_names <- names(corr_test[1:5])
+## largest positive correlation
+pos_cor_names <- names(corr_test[length(corr_test) - 4:0])
+
+ggplot(corr_dt, aes(x = correlation)) +
+  geom_histogram(fill = "grey", color = "black") +
+  theme_bw() +
+  labs(x = "Correlation") +
+  theme(legend.position = "none") +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text = element_text(size = 13),
+        axis.title = element_text(size = 15),
+        panel.border = element_rect(colour = "cornflowerblue",
+                                    fill = NA, size  = 1))
+ggsave("figs/correlation_continuous.png",
+       units = "in", height = 5, width = 6)
+
+ggplot(gene_data[, .(survival_time, get(pos_cor_names[5]))],
+       aes(x = log(survival_time), y = V2)) +
+  geom_point() +
+  theme_bw() +
+  geom_smooth(method='lm', formula= y~x, color = "cornflowerblue") +
+  labs(y = pos_cor_names[5], x = "log(Survival Time)") +
+  theme(legend.position = "none") +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text = element_text(size = 13),
+        axis.title = element_text(size = 15),
+        panel.border = element_rect(colour = "cornflowerblue",
+                                    fill = NA, size  = 1))
+
+ggsave("figs/pos_cor_example_continuous.png",
+       units = "in", height = 5, width = 6)
+
+ggplot(gene_data[, .(survival_time, get(neg_cor_names[1]))],
+       aes(x = log(survival_time), y = V2)) +
+  geom_point() +
+  theme_bw() +
+  geom_smooth(method='lm', formula= y~x, color = "cornflowerblue") +
+  labs(y = neg_cor_names[1], x = "log(Survival Time)") +
+  theme(legend.position = "none") +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text = element_text(size = 13),
+        axis.title = element_text(size = 15),
+        panel.border = element_rect(colour = "cornflowerblue",
+                                    fill = NA, size  = 1))
+
+ggsave("figs/neg_cor_example_continuous.png",
+       units = "in", height = 5, width = 6)
+
 
 ## Principal Component Analysis ----
 pc <- prcomp(gene_data_0,
              center = TRUE,
              scale. = TRUE)
-summary(pc)
-trg <- predict(pc, gene_data)
-trg <- data.frame(trg, gene_data)
 
-### Plot the diminishing return of components
+### Extract the variance information
 pca_dt <- data.table("sdev" = pc$sdev)
 pca_dt[, component := 1:.N]
 pca_dt[, proportion_var := sdev^2 / sum((sdev^2))]
 pca_dt[, cum_proportion := cumsum(proportion_var)]
+
+### Plot the diminishing return of components
 ggplot(pca_dt[component < 50], aes(x = component, y = cum_proportion)) +
   geom_point() +
   theme_bw() +
@@ -222,12 +306,6 @@ ggplot(pca_dt[component < 50], aes(x = component, y = cum_proportion)) +
 
 ggsave("figs/pca.png",
        units = "in", height = 5, width = 6)
-
-### Logistic Regression
-formula_pca_1 <- build_cor_formula("status",
-                                   sapply(1:5, function(x) paste0("PC", x)))
-model_pca_1 <- glm(formula_pca_1, data = trg, family = "binomial")
-summary(model_pca_1)
 
 # Could be done in the future
 # 1. Archetypal analysis: instead of grouping by looking for the mean of a
