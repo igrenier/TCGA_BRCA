@@ -338,7 +338,3 @@ ggplot(pca_dt[component < 50], aes(x = component, y = cum_proportion)) +
 
 ggsave("figs/pca.png",
        units = "in", height = 5, width = 6)
-
-# Could be done in the future
-# 1. Archetypal analysis: instead of grouping by looking for the mean of a
-#   cluster, we look at finding the boundaries/extreme cases
