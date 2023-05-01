@@ -12,12 +12,6 @@ library(survival)
 library(broom)
 library(ciTools)
 
-# Questions:
-# 4. Check the assumptions of the regressions models
-# 5. Plot the results and make some conclusion about the impact of age
-#   for example, someone who is diagnosed at 50 is X more likely to survive
-#   than someone diagnosed at 60 for example.
-
 # Read the data ----
 clinical_data <- fread("data/clinical.tsv", sep ="\t", header = TRUE)
 clinical_data <- as.data.table(clinical_data)
@@ -354,7 +348,7 @@ ggsave("figs/aft_survival_by_age_and_stage.png",
        units = "in", height = 3, width = 12)
 
 # Next steps ----
-# 1. look deepter into interactions between covariates
+# 1. look deeper into interactions between covariates
 # 2. look at the correlation between therapy type and survival time
 # 3. look into the Bayesian version of the model to allow for
 # uncertainty quantification of the posterior parameters
