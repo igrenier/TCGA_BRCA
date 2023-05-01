@@ -353,7 +353,7 @@ ggplot(probs, aes(x = age, y = prob)) +
 ggsave("figs/aft_survival_by_age_and_stage.png",
        units = "in", height = 3, width = 12)
 
-# Could be done in the future
+# Next steps ----
 # 1. look deepter into interactions between covariates
 # 2. look at the correlation between therapy type and survival time
 # 3. look into the Bayesian version of the model to allow for
